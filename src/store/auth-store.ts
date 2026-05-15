@@ -3,13 +3,14 @@ import { persist } from "zustand/middleware"
 
 export type UserRole = "admin" | "barbeiro" | "caixa"
 
-interface User {
+export interface User {
   id: string
   nome: string
   email: string
   role: UserRole
   avatar?: string
   barbeiroId?: string
+  unidadeId?: string
 }
 
 interface AuthState {
@@ -18,6 +19,7 @@ interface AuthState {
   isAuthenticated: boolean
 
   login: (user: User, token: string) => void
+  setUser: (user: User) => void
   logout: () => void
   updateUser: (data: Partial<User>) => void
 }
@@ -30,6 +32,7 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
 
       login: (user, token) => set({ user, token, isAuthenticated: true }),
+      setUser: (user) => set({ user, token: null, isAuthenticated: true }),
 
       logout: () => set({ user: null, token: null, isAuthenticated: false }),
 

@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import {
   CurrencyDollar, CheckCircle, Clock, ChartLineUp,
   Scissors, Receipt, Confetti, Buildings, ArrowsDownUp,
-  ArrowDown, ArrowUp, Export
+  ArrowDown, ArrowUp
 } from "@phosphor-icons/react"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -69,22 +69,33 @@ const graficoData = UNIDADES.map(u => ({
 
 const CORES_B = ["#f97316","#3b82f6","#8b5cf6"]
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+type TooltipPayload = {
+  name?: string
+  value?: number
+  fill?: string
+}
+
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipPayload[]; label?: string }) {
   if (!active || !payload?.length) return null
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-xl text-xs">
       <p className="font-semibold mb-2">{label}</p>
-      {payload.map((p: any) => (
+      {payload.map((p) => (
         <div key={p.name} className="flex items-center justify-between gap-3">
           <span className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full" style={{background:p.fill}}/>
             {p.name}
           </span>
-          <span className="font-bold">{formatCurrency(p.value)}</span>
+          <span className="font-bold">{formatCurrency(Number(p.value ?? 0))}</span>
         </div>
       ))}
     </div>
   )
+}
+
+function SortIcon({ active, ascending }: { active: boolean; ascending: boolean }) {
+  if (!active) return <ArrowsDownUp size={11} className="opacity-40"/>
+  return ascending ? <ArrowUp size={11}/> : <ArrowDown size={11}/>
 }
 
 export default function ComissoesPage() {
@@ -115,12 +126,10 @@ export default function ComissoesPage() {
     else { setSortCol(col); setSortAsc(false) }
   }
 
-  const SortIcon = ({ col }: { col: string }) => {
-    if (sortCol !== col) return <ArrowsDownUp size={11} className="opacity-40"/>
-    return sortAsc ? <ArrowUp size={11}/> : <ArrowDown size={11}/>
-  }
-
   const sorted = [...lista].sort((a,b) => {
+    if (sortCol === "nome") {
+      return sortAsc ? a.nome.localeCompare(b.nome) : b.nome.localeCompare(a.nome)
+    }
     const aV = sortCol === "total" ? getTotal(a) : (a.porUnidade[sortCol]?.comissao ?? 0)
     const bV = sortCol === "total" ? getTotal(b) : (b.porUnidade[sortCol]?.comissao ?? 0)
     return sortAsc ? aV - bV : bV - aV
@@ -172,7 +181,7 @@ export default function ComissoesPage() {
                   <tr className="border-b border-[var(--border)] bg-[var(--muted)]/40">
                     <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted-foreground)] w-40">
                       <button className="flex items-center gap-1 hover:text-[var(--foreground)]" onClick={()=>sortBy("nome")}>
-                        Barbeiro <SortIcon col="nome"/>
+                        Barbeiro <SortIcon active={sortCol === "nome"} ascending={sortAsc}/>
                       </button>
                     </th>
                     {UNIDADES.map(u=>(
@@ -184,7 +193,7 @@ export default function ComissoesPage() {
                     ))}
                     <th className="px-4 py-3 text-right text-xs font-medium text-[var(--muted-foreground)]">
                       <button className="flex items-center gap-1 ml-auto hover:text-[var(--foreground)]" onClick={()=>sortBy("total")}>
-                        Total <SortIcon col="total"/>
+                        Total <SortIcon active={sortCol === "total"} ascending={sortAsc}/>
                       </button>
                     </th>
                     <th className="px-4 py-3"/>

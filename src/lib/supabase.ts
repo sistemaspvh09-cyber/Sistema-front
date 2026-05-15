@@ -5,7 +5,7 @@
  * 1. Crie um projeto em https://supabase.com
  * 2. Copie as variáveis para .env.local:
  *    NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
- *    NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...
+ *    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
  * 3. Execute o schema SQL abaixo no Editor SQL do Supabase
  *
  * Enquanto as variáveis não estiverem definidas, o sistema
@@ -15,7 +15,10 @@
 import { createClient } from "@supabase/supabase-js"
 
 const url  = process.env.NEXT_PUBLIC_SUPABASE_URL  ?? ""
-const key  = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ""
+const key =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+  ""
 
 export const supabase = url && key ? createClient(url, key) : null
 

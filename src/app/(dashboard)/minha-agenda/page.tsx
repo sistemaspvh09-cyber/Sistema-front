@@ -1,9 +1,7 @@
 "use client"
-
-import { useState } from "react"
 import { motion } from "framer-motion"
 import {
-  CalendarBlank, Clock, User, CurrencyDollar,
+  CalendarBlank, Clock, CurrencyDollar,
   CheckCircle, XCircle, Hourglass, ChartLineUp, Star
 } from "@phosphor-icons/react"
 import { Header } from "@/components/layout/header"
@@ -152,7 +150,7 @@ export default function MinhaAgendaPage() {
                       ))}
                     </div>
                     {a.obs && (
-                      <p className="mt-0.5 text-[10px] text-amber-500 italic">"{a.obs}"</p>
+                      <p className="mt-0.5 text-[10px] text-amber-500 italic">&quot;{a.obs}&quot;</p>
                     )}
                   </div>
 

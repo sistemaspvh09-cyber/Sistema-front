@@ -43,12 +43,18 @@ const clientesMes = [
   { mes: "Jun", novos: 20, recorrentes: 72 },
 ]
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+type TooltipPayload = {
+  name?: string
+  value?: number | string
+  color?: string
+}
+
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipPayload[]; label?: string }) {
   if (!active || !payload?.length) return null
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-xl text-xs">
       <p className="mb-2 font-semibold">{label}</p>
-      {payload.map((p: any) => (
+      {payload.map((p) => (
         <div key={p.name} className="flex items-center justify-between gap-4">
           <span className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full" style={{ background: p.color }} />

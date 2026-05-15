@@ -1,130 +1,182 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { motion } from "framer-motion"
-import {
-  TrendUp, TrendDown, CurrencyDollar, ArrowUpRight, ArrowDownRight,
-  Plus, PencilSimple, Receipt, HouseLine, Lightning, Wrench, Package
-} from "@phosphor-icons/react"
+import { ArrowDownRight, ArrowUpRight, CurrencyDollar, PencilSimple, Plus, Receipt, TrendDown, TrendUp } from "@phosphor-icons/react"
 import { Header } from "@/components/layout/header"
+import { ActiveFilterTabs, DataFeedback } from "@/components/dashboard/data-state"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Select } from "@/components/ui/select"
-import { GradientCard } from "@/components/ui/gradient-card"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Drawer, DrawerFooter } from "@/components/ui/drawer"
+import { GradientCard } from "@/components/ui/gradient-card"
+import { Input } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { createClient } from "@/lib/client"
 import { formatCurrency, formatDate } from "@/lib/utils"
+import { activeMatches, type ActiveFilter, type TransacaoRow, type UnidadeRow } from "@/lib/supabase-records"
+import { useUpdateRow, useUpsertRow } from "@/lib/use-supabase-crud"
+import { useAuthStore } from "@/store/auth-store"
 import { useToast } from "@/components/ui/toast"
 
-interface Transacao {
-  id: string; tipo: "receita" | "despesa"
-  descricao: string; valor: number; data: string
-  categoria: string; metodo: string
+type BadgeVariant = "default" | "secondary" | "destructive" | "outline" | "success" | "warning"
+type TipoTransacao = "receita" | "despesa"
+
+interface TransacaoForm {
+  unidade_id: string
+  tipo: TipoTransacao
+  descricao: string
+  valor: number
+  data: string
+  categoria: string
+  metodo: string
+  ativo: boolean
 }
 
-const categoriasReceita = ["Serviço","Produto","Gorjeta","Outro"]
-const categoriasDespesa = ["Aluguel","Energia","Insumos","Salários","Manutenção","Impostos","Marketing","Outro"]
-const metodos = ["pix","credito","debito","dinheiro","transferencia"]
+const categoriasReceita = ["Serviço", "Produto", "Gorjeta", "Outro"]
+const categoriasDespesa = ["Aluguel", "Energia", "Insumos", "Salários", "Manutenção", "Impostos", "Marketing", "Outro"]
+const metodos = ["pix", "credito", "debito", "dinheiro", "transferencia"]
 const metodoLabel: Record<string, string> = {
-  pix:"PIX", credito:"Crédito", debito:"Débito", dinheiro:"Dinheiro", transferencia:"Transferência", "":"—"
+  pix: "PIX",
+  credito: "Crédito",
+  debito: "Débito",
+  dinheiro: "Dinheiro",
+  transferencia: "Transferência",
+  "": "—",
 }
-const metodoVariant: Record<string, string> = {
-  pix:"success", credito:"default", debito:"warning", dinheiro:"secondary", transferencia:"secondary"
+const metodoVariant: Record<string, BadgeVariant> = {
+  pix: "success",
+  credito: "default",
+  debito: "warning",
+  dinheiro: "secondary",
+  transferencia: "secondary",
 }
 
-const catIcons: Record<string, React.ElementType> = {
-  "Aluguel": HouseLine, "Insumos": Package, "Energia": Lightning, "Manutenção": Wrench,
+function today() {
+  return new Date().toISOString().slice(0, 10)
 }
 
-const transacoesIniciais: Transacao[] = [
-  { id:"t1", tipo:"receita",  descricao:"Venda #0042 — Corte + Barba", valor:70,   data:"2026-05-14", categoria:"Serviço",  metodo:"pix"          },
-  { id:"t2", tipo:"receita",  descricao:"Venda #0041 — Pomada Matte",  valor:45,   data:"2026-05-14", categoria:"Produto",  metodo:"credito"      },
-  { id:"t3", tipo:"despesa",  descricao:"Compra de insumos",           valor:180,  data:"2026-05-12", categoria:"Insumos",  metodo:"transferencia" },
-  { id:"t4", tipo:"receita",  descricao:"Venda #0040 — Corte",         valor:45,   data:"2026-05-12", categoria:"Serviço",  metodo:"debito"       },
-  { id:"t5", tipo:"despesa",  descricao:"Aluguel maio/2026",           valor:2500, data:"2026-05-10", categoria:"Aluguel",  metodo:"transferencia" },
-  { id:"t6", tipo:"receita",  descricao:"Venda #0039 — Platinado",     valor:120,  data:"2026-05-10", categoria:"Serviço",  metodo:"pix"          },
-  { id:"t7", tipo:"receita",  descricao:"Venda #0038 — Óleo de Barba", valor:38,   data:"2026-05-09", categoria:"Produto",  metodo:"dinheiro"     },
-  { id:"t8", tipo:"despesa",  descricao:"Energia elétrica",            valor:320,  data:"2026-05-08", categoria:"Energia",  metodo:"debito"       },
-]
+function normaliseTransacao(transacao: TransacaoRow | null, fallbackUnidadeId: string): TransacaoForm {
+  if (!transacao) {
+    return {
+      unidade_id: fallbackUnidadeId,
+      tipo: "receita",
+      descricao: "",
+      valor: 0,
+      data: today(),
+      categoria: "Serviço",
+      metodo: "pix",
+      ativo: true,
+    }
+  }
 
-const fluxoCaixa = [
-  { desc:"Saldo inicial",   valor:4200,  tipo:"saldo"   },
-  { desc:"Entradas do mês", valor:8420,  tipo:"entrada" },
-  { desc:"Saídas do mês",   valor:-3180, tipo:"saida"   },
-  { desc:"Saldo final",     valor:9440,  tipo:"saldo"   },
-]
+  return {
+    unidade_id: transacao.unidade_id ?? fallbackUnidadeId,
+    tipo: transacao.tipo,
+    descricao: transacao.descricao,
+    valor: Number(transacao.valor ?? 0),
+    data: transacao.data,
+    categoria: transacao.categoria ?? (transacao.tipo === "receita" ? "Serviço" : "Aluguel"),
+    metodo: transacao.metodo ?? "pix",
+    ativo: transacao.ativo !== false,
+  }
+}
 
-function TransacaoDrawer({ transacao, open, onClose, onSave }: {
-  transacao: Transacao | null; open: boolean; onClose: () => void; onSave: (t: Transacao) => void
+function TransacaoDrawer({
+  transacao,
+  open,
+  unidades,
+  fallbackUnidadeId,
+  onClose,
+  onSave,
+}: {
+  transacao: TransacaoRow | null
+  open: boolean
+  unidades: UnidadeRow[]
+  fallbackUnidadeId: string
+  onClose: () => void
+  onSave: (payload: Record<string, unknown>) => void
 }) {
   const isNew = !transacao?.id
-  const [tipo, setTipo] = useState<"receita"|"despesa">(transacao?.tipo ?? "receita")
-  const [form, setForm] = useState({
-    descricao: transacao?.descricao ?? "",
-    valor:     transacao?.valor ?? 0,
-    data:      transacao?.data  ?? new Date().toISOString().slice(0,10),
-    categoria: transacao?.categoria ?? "Serviço",
-    metodo:    transacao?.metodo    ?? "pix",
-  })
+  const [form, setForm] = useState<TransacaoForm>(() => normaliseTransacao(transacao, fallbackUnidadeId))
 
-  function upd<K extends keyof typeof form>(k:K, v:typeof form[K]) { setForm(p=>({...p,[k]:v})) }
+  function upd<K extends keyof TransacaoForm>(key: K, value: TransacaoForm[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }))
+  }
 
-  const cats = tipo === "receita" ? categoriasReceita : categoriasDespesa
-  const catOpts = cats.map(c=>({value:c,label:c}))
-  const metOpts = metodos.map(m=>({value:m,label:metodoLabel[m]}))
+  function setTipo(tipo: TipoTransacao) {
+    setForm((prev) => ({
+      ...prev,
+      tipo,
+      categoria: tipo === "receita" ? "Serviço" : "Aluguel",
+    }))
+  }
+
+  const categorias = form.tipo === "receita" ? categoriasReceita : categoriasDespesa
+  const categoriaOptions = categorias.map((categoria) => ({ value: categoria, label: categoria }))
+  const metodoOptions = metodos.map((metodo) => ({ value: metodo, label: metodoLabel[metodo] }))
 
   return (
-    <Drawer open={open} onClose={onClose} title={isNew?"Nova transação":"Editar transação"} description={isNew?"Registre uma receita ou despesa manualmente":""} size="md">
+    <Drawer open={open} onClose={onClose} title={isNew ? "Nova transação" : "Editar transação"} description={isNew ? "Registre uma receita ou despesa manualmente" : ""} size="md">
       <div className="space-y-4">
-        {/* Tipo */}
+        {unidades.length > 0 && (
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-[var(--muted-foreground)]">Unidade *</label>
+            <Select options={unidades.map((u) => ({ value: u.id, label: u.nome }))} value={form.unidade_id} onChange={(event) => upd("unidade_id", event.target.value)} />
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-2">
-          {(["receita","despesa"] as const).map(t=>(
-            <button key={t} onClick={()=>{ setTipo(t); upd("categoria", t==="receita"?"Serviço":"Aluguel") }}
+          {(["receita", "despesa"] as const).map((tipo) => (
+            <button
+              key={tipo}
+              onClick={() => setTipo(tipo)}
               className={`flex items-center justify-center gap-2 rounded-xl border-2 py-3 text-sm font-semibold transition-all ${
-                tipo===t
-                  ? t==="receita" ? "border-emerald-500 bg-emerald-500/10 text-emerald-600" : "border-red-500 bg-red-500/10 text-red-500"
+                form.tipo === tipo
+                  ? tipo === "receita"
+                    ? "border-emerald-500 bg-emerald-500/10 text-emerald-600"
+                    : "border-red-500 bg-red-500/10 text-red-500"
                   : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)]/40"
               }`}
             >
-              {t==="receita" ? <ArrowUpRight weight="bold" size={16}/> : <ArrowDownRight weight="bold" size={16}/>}
-              {t==="receita" ? "Receita" : "Despesa"}
+              {tipo === "receita" ? <ArrowUpRight weight="bold" size={16} /> : <ArrowDownRight weight="bold" size={16} />}
+              {tipo === "receita" ? "Receita" : "Despesa"}
             </button>
           ))}
         </div>
 
         <div className="space-y-1">
           <label className="text-xs font-medium text-[var(--muted-foreground)]">Descrição *</label>
-          <Input value={form.descricao} onChange={e=>upd("descricao",e.target.value)} placeholder="Ex: Venda de serviço, Conta de energia..." />
+          <Input value={form.descricao} onChange={(event) => upd("descricao", event.target.value)} placeholder="Ex: Venda de serviço, conta de energia..." />
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-foreground)]">Valor (R$) *</label>
-            <Input type="number" value={form.valor} onChange={e=>upd("valor",Number(e.target.value))} min={0} step={0.01} />
+            <Input type="number" value={form.valor} onChange={(event) => upd("valor", Number(event.target.value))} min={0} step={0.01} />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-foreground)]">Data *</label>
-            <Input type="date" value={form.data} onChange={e=>upd("data",e.target.value)} />
+            <Input type="date" value={form.data} onChange={(event) => upd("data", event.target.value)} />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-foreground)]">Categoria</label>
-            <Select options={catOpts} value={form.categoria} onChange={e=>upd("categoria",e.target.value)} />
+            <Select options={categoriaOptions} value={form.categoria} onChange={(event) => upd("categoria", event.target.value)} />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-foreground)]">Método</label>
-            <Select options={metOpts} value={form.metodo} onChange={e=>upd("metodo",e.target.value)} />
+            <Select options={metodoOptions} value={form.metodo} onChange={(event) => upd("metodo", event.target.value)} />
           </div>
         </div>
 
-        {/* Preview */}
         {form.valor > 0 && form.descricao && (
-          <div className={`rounded-xl border p-3 ${tipo==="receita"?"border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30":"border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30"}`}>
-            <p className="text-xs font-medium text-[var(--muted-foreground)] mb-1">Preview</p>
+          <div className={`rounded-xl border p-3 ${form.tipo === "receita" ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30" : "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30"}`}>
+            <p className="mb-1 text-xs font-medium text-[var(--muted-foreground)]">Preview</p>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium truncate">{form.descricao}</span>
-              <span className={`text-base font-bold ${tipo==="receita"?"text-emerald-600":"text-red-500"}`}>
-                {tipo==="receita"?"+":"-"}{formatCurrency(form.valor)}
+              <span className="truncate text-sm font-medium">{form.descricao}</span>
+              <span className={`text-base font-bold ${form.tipo === "receita" ? "text-emerald-600" : "text-red-500"}`}>
+                {form.tipo === "receita" ? "+" : "-"}{formatCurrency(form.valor)}
               </span>
             </div>
           </div>
@@ -133,8 +185,23 @@ function TransacaoDrawer({ transacao, open, onClose, onSave }: {
 
       <DrawerFooter>
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
-        <Button onClick={()=>onSave({...form,tipo,id:transacao?.id??crypto.randomUUID()})} disabled={!form.descricao||form.valor<=0}>
-          {isNew?"Registrar":"Salvar"}
+        <Button
+          onClick={() =>
+            onSave({
+              ...(transacao?.id ? { id: transacao.id } : {}),
+              unidade_id: form.unidade_id || null,
+              tipo: form.tipo,
+              descricao: form.descricao.trim(),
+              valor: form.valor,
+              data: form.data,
+              categoria: form.categoria,
+              metodo: form.metodo,
+              ativo: form.ativo,
+            })
+          }
+          disabled={!form.descricao.trim() || form.valor <= 0 || !form.data}
+        >
+          {isNew ? "Registrar" : "Salvar"}
         </Button>
       </DrawerFooter>
     </Drawer>
@@ -142,138 +209,181 @@ function TransacaoDrawer({ transacao, open, onClose, onSave }: {
 }
 
 export default function FinanceiroPage() {
-  const [transacoes, setTransacoes] = useState(transacoesIniciais)
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [selected, setSelected] = useState<Transacao|null>(null)
-  const [filtroTipo, setFiltroTipo] = useState("todos")
+  const { user } = useAuthStore()
   const { toast } = useToast()
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [selected, setSelected] = useState<TransacaoRow | null>(null)
+  const [filtroTipo, setFiltroTipo] = useState<TipoTransacao | "todos">("todos")
+  const [filtroAtivo, setFiltroAtivo] = useState<ActiveFilter>("ativos")
+  const transacoesKey = ["transacoes"] as const
 
-  const receitaTotal = transacoes.filter(t=>t.tipo==="receita").reduce((a,t)=>a+t.valor,0)
-  const despesaTotal = transacoes.filter(t=>t.tipo==="despesa").reduce((a,t)=>a+t.valor,0)
+  const transacoesQuery = useQuery({
+    queryKey: transacoesKey,
+    queryFn: async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase.from("transacoes").select("*").order("data", { ascending: false })
+      if (error) throw error
+      return (data ?? []) as TransacaoRow[]
+    },
+  })
+
+  const unidadesQuery = useQuery({
+    queryKey: ["unidades", "select"],
+    queryFn: async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase.from("unidades").select("*").order("nome")
+      if (error) throw error
+      return (data ?? []) as UnidadeRow[]
+    },
+  })
+
+  const upsert = useUpsertRow("transacoes", transacoesKey)
+  const update = useUpdateRow("transacoes", transacoesKey)
+  const transacoes = useMemo(() => transacoesQuery.data ?? [], [transacoesQuery.data])
+  const unidades = unidadesQuery.data ?? []
+  const fallbackUnidadeId = user?.unidadeId ?? unidades[0]?.id ?? ""
+
+  const filtradas = useMemo(
+    () =>
+      transacoes.filter((transacao) => {
+        const matchTipo = filtroTipo === "todos" || transacao.tipo === filtroTipo
+        const matchAtivo = activeMatches(transacao.ativo, filtroAtivo)
+        return matchTipo && matchAtivo
+      }),
+    [filtroAtivo, filtroTipo, transacoes]
+  )
+
+  const transacoesAtivas = transacoes.filter((transacao) => transacao.ativo !== false)
+  const receitaTotal = transacoesAtivas.filter((transacao) => transacao.tipo === "receita").reduce((sum, transacao) => sum + Number(transacao.valor ?? 0), 0)
+  const despesaTotal = transacoesAtivas.filter((transacao) => transacao.tipo === "despesa").reduce((sum, transacao) => sum + Number(transacao.valor ?? 0), 0)
   const lucro = receitaTotal - despesaTotal
-  const margem = receitaTotal > 0 ? Math.round((lucro/receitaTotal)*100) : 0
+  const margem = receitaTotal > 0 ? Math.round((lucro / receitaTotal) * 100) : 0
 
-  const filtradas = transacoes.filter(t=>filtroTipo==="todos"||t.tipo===filtroTipo)
+  function openNew() {
+    setSelected(null)
+    setDrawerOpen(true)
+  }
 
-  function openNew()  { setSelected(null); setDrawerOpen(true) }
-  function openEdit(t:Transacao) { setSelected(t); setDrawerOpen(true) }
+  function openEdit(transacao: TransacaoRow) {
+    setSelected(transacao)
+    setDrawerOpen(true)
+  }
 
-  function handleSave(t:Transacao) {
-    setTransacoes(prev=>{
-      const exists=prev.find(x=>x.id===t.id)
-      return exists?prev.map(x=>x.id===t.id?t:x):[t,...prev]
-    })
-    toast({ type:"success", title:selected?"Transação atualizada!":"Transação registrada!", description:`${t.tipo==="receita"?"+":"-"}${formatCurrency(t.valor)}` })
+  async function handleSave(payload: Record<string, unknown>) {
+    await upsert.mutateAsync(payload)
+    toast({ type: "success", title: selected ? "Transação atualizada!" : "Transação registrada!" })
     setDrawerOpen(false)
   }
 
+  async function toggleAtivo(transacao: TransacaoRow) {
+    const next = transacao.ativo === false
+    const action = next ? "reativar" : "desativar"
+    if (!window.confirm(`Confirmar ${action} esta transação?`)) return
+    await update.mutateAsync({ id: transacao.id, payload: { ativo: next } })
+    toast({ type: "success", title: next ? "Transação reativada!" : "Transação desativada!" })
+  }
+
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <Header title="Financeiro" subtitle="Controle financeiro completo" action={{ label:"Nova transação", onClick:openNew }} />
+    <div className="flex h-full flex-col overflow-hidden">
+      <Header title="Financeiro" subtitle="Controle financeiro completo" action={{ label: "Nova transação", onClick: openNew }} />
 
-      <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-5 animate-fade-in">
-
-        {/* KPIs */}
+      <div className="flex-1 space-y-5 overflow-y-auto p-4 animate-fade-in lg:p-6">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <GradientCard title="Receita do mês" value={formatCurrency(receitaTotal)} change={18.4} subtitle="vs mês anterior" icon={TrendUp} gradient="from-emerald-500 via-teal-500 to-cyan-600" glowClass="glow-green" delay={0} />
-          <GradientCard title="Despesas do mês" value={formatCurrency(despesaTotal)} change={5.2} subtitle="vs mês anterior" icon={TrendDown} gradient="from-red-500 via-rose-500 to-pink-600" glowClass="glow-rose" delay={0.06} />
-          <GradientCard title="Lucro líquido" value={formatCurrency(lucro)} change={24.1} subtitle="resultado positivo" icon={CurrencyDollar} gradient="from-orange-500 via-orange-600 to-amber-600" glowClass="glow-orange" delay={0.12} />
-          <GradientCard title="Margem de lucro" value={`${margem}%`} change={3.8} subtitle="sobre receita bruta" icon={Receipt} gradient="from-blue-500 via-blue-600 to-indigo-700" glowClass="glow-blue" delay={0.18} />
+          <GradientCard title="Receita do mês" value={formatCurrency(receitaTotal)} icon={TrendUp} gradient="from-emerald-500 via-teal-500 to-cyan-600" glowClass="glow-green" delay={0} />
+          <GradientCard title="Despesas do mês" value={formatCurrency(despesaTotal)} icon={TrendDown} gradient="from-red-500 via-rose-500 to-pink-600" glowClass="glow-rose" delay={0.06} />
+          <GradientCard title="Lucro líquido" value={formatCurrency(lucro)} icon={CurrencyDollar} gradient="from-orange-500 via-orange-600 to-amber-600" glowClass="glow-orange" delay={0.12} />
+          <GradientCard title="Margem de lucro" value={`${margem}%`} icon={Receipt} gradient="from-blue-500 via-blue-600 to-indigo-700" glowClass="glow-blue" delay={0.18} />
         </div>
 
         <Tabs defaultValue="transacoes">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <TabsList>
               <TabsTrigger value="transacoes">Transações</TabsTrigger>
               <TabsTrigger value="fluxo">Fluxo de caixa</TabsTrigger>
             </TabsList>
-            <div className="flex gap-1.5">
-              {[["todos","Todos"],["receita","Receitas"],["despesa","Despesas"]].map(([v,l])=>(
-                <button key={v} onClick={()=>setFiltroTipo(v)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium border transition-all ${
-                    filtroTipo===v?"bg-[var(--primary)] text-white border-[var(--primary)]":"border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)]/50"
+            <div className="flex flex-wrap gap-1.5">
+              <ActiveFilterTabs value={filtroAtivo} onChange={setFiltroAtivo} />
+              {[{ value: "todos", label: "Todos" }, { value: "receita", label: "Receitas" }, { value: "despesa", label: "Despesas" }].map((item) => (
+                <button
+                  key={item.value}
+                  onClick={() => setFiltroTipo(item.value as TipoTransacao | "todos")}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-all ${
+                    filtroTipo === item.value
+                      ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                      : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)]/50"
                   }`}
-                >{l}</button>
+                >
+                  {item.label}
+                </button>
               ))}
             </div>
           </div>
 
           <TabsContent value="transacoes">
-            <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--border)] bg-[var(--muted)]/20">
+            <DataFeedback
+              isLoading={transacoesQuery.isLoading}
+              error={transacoesQuery.error}
+              isEmpty={!transacoesQuery.isLoading && filtradas.length === 0}
+              onRetry={() => transacoesQuery.refetch()}
+            />
+
+            <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)]">
+              <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--muted)]/20 px-5 py-3.5">
                 <div className="flex items-center gap-4 text-xs">
-                  <span className="flex items-center gap-1 font-semibold text-emerald-600">
-                    <ArrowUpRight weight="bold" size={13}/>{formatCurrency(receitaTotal)}
-                  </span>
+                  <span className="flex items-center gap-1 font-semibold text-emerald-600"><ArrowUpRight weight="bold" size={13} />{formatCurrency(receitaTotal)}</span>
                   <span className="text-[var(--border)]">|</span>
-                  <span className="flex items-center gap-1 font-semibold text-red-500">
-                    <ArrowDownRight weight="bold" size={13}/>{formatCurrency(despesaTotal)}
-                  </span>
+                  <span className="flex items-center gap-1 font-semibold text-red-500"><ArrowDownRight weight="bold" size={13} />{formatCurrency(despesaTotal)}</span>
                 </div>
-                <button onClick={openNew}
-                  className="flex items-center gap-1.5 rounded-xl bg-[var(--primary)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity">
-                  <Plus weight="bold" size={12}/>Nova
+                <button onClick={openNew} className="flex items-center gap-1.5 rounded-xl bg-[var(--primary)] px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90">
+                  <Plus weight="bold" size={12} />
+                  Nova
                 </button>
               </div>
 
               <div className="divide-y divide-[var(--border)]">
-                {filtradas.map((t,i)=>(
-                  <motion.div key={t.id} initial={{opacity:0,x:-6}} animate={{opacity:1,x:0}} transition={{delay:i*0.03}}
-                    className="flex items-center gap-4 px-5 py-3.5 hover:bg-[var(--muted)]/20 transition-colors group"
-                  >
-                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${t.tipo==="receita"?"bg-emerald-500/10":"bg-red-500/10"}`}>
-                      {t.tipo==="receita"
-                        ? <ArrowUpRight weight="duotone" size={16} className="text-emerald-600"/>
-                        : <ArrowDownRight weight="duotone" size={16} className="text-red-500"/>}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{t.descricao}</p>
-                      <p className="text-xs text-[var(--muted-foreground)]">{formatDate(t.data)} · {t.categoria}</p>
-                    </div>
-                    {t.metodo && (
-                      <Badge variant={(metodoVariant[t.metodo]??"secondary") as any} className="text-[10px] shrink-0 hidden sm:flex">
-                        {metodoLabel[t.metodo]}
-                      </Badge>
-                    )}
-                    <p className={`text-sm font-bold shrink-0 ${t.tipo==="receita"?"text-emerald-600":"text-red-500"}`}>
-                      {t.tipo==="receita"?"+":"-"}{formatCurrency(t.valor)}
-                    </p>
-                    <button onClick={()=>openEdit(t)}
-                      className="h-7 w-7 flex items-center justify-center rounded-lg text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] opacity-0 group-hover:opacity-100 transition-all shrink-0">
-                      <PencilSimple weight="bold" size={13}/>
-                    </button>
-                  </motion.div>
-                ))}
+                {filtradas.map((transacao, index) => {
+                  const inactive = transacao.ativo === false
+                  return (
+                    <motion.div key={transacao.id} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * 0.03 }} className={`group flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-[var(--muted)]/20 ${inactive ? "opacity-55" : ""}`}>
+                      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${transacao.tipo === "receita" ? "bg-emerald-500/10" : "bg-red-500/10"}`}>
+                        {transacao.tipo === "receita" ? <ArrowUpRight weight="duotone" size={16} className="text-emerald-600" /> : <ArrowDownRight weight="duotone" size={16} className="text-red-500" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{transacao.descricao}</p>
+                        <p className="text-xs text-[var(--muted-foreground)]">{formatDate(transacao.data)} · {transacao.categoria ?? "Sem categoria"}</p>
+                      </div>
+                      {transacao.metodo && <Badge variant={metodoVariant[transacao.metodo] ?? "secondary"} className="hidden shrink-0 text-[10px] sm:flex">{metodoLabel[transacao.metodo]}</Badge>}
+                      <p className={`shrink-0 text-sm font-bold ${transacao.tipo === "receita" ? "text-emerald-600" : "text-red-500"}`}>
+                        {transacao.tipo === "receita" ? "+" : "-"}{formatCurrency(Number(transacao.valor ?? 0))}
+                      </p>
+                      <button onClick={() => openEdit(transacao)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] opacity-0 transition-all hover:bg-[var(--muted)] hover:text-[var(--foreground)] group-hover:opacity-100">
+                        <PencilSimple weight="bold" size={13} />
+                      </button>
+                      <Button size="sm" variant={inactive ? "secondary" : "ghost"} onClick={() => toggleAtivo(transacao)} className="h-7 text-xs opacity-0 transition-opacity group-hover:opacity-100">
+                        {inactive ? "Reativar" : "Desativar"}
+                      </Button>
+                    </motion.div>
+                  )
+                })}
               </div>
             </div>
           </TabsContent>
 
           <TabsContent value="fluxo">
-            <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
-              <div className="px-5 py-4 border-b border-[var(--border)]">
-                <p className="text-sm font-semibold">Fluxo de caixa — maio 2026</p>
+            <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)]">
+              <div className="border-b border-[var(--border)] px-5 py-4">
+                <p className="text-sm font-semibold">Fluxo de caixa</p>
               </div>
-              <div className="p-5 space-y-3">
-                {fluxoCaixa.map((f,i)=>(
-                  <div key={i} className={`flex items-center justify-between rounded-xl p-4 ${
-                    f.tipo==="saldo"  ? "bg-[var(--muted)] border border-[var(--border)]" :
-                    f.tipo==="entrada"? "bg-emerald-50 border border-emerald-100 dark:bg-emerald-950/20 dark:border-emerald-900" :
-                                       "bg-red-50 border border-red-100 dark:bg-red-950/20 dark:border-red-900"
-                  }`}>
-                    <div className="flex items-center gap-3">
-                      <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${
-                        f.tipo==="entrada"?"bg-emerald-500/15":f.tipo==="saida"?"bg-red-500/15":"bg-[var(--muted-foreground)]/10"
-                      }`}>
-                        {f.tipo==="entrada"?<ArrowUpRight weight="duotone" size={15} className="text-emerald-600"/>:
-                         f.tipo==="saida"  ?<ArrowDownRight weight="duotone" size={15} className="text-red-500"/>:
-                                            <CurrencyDollar weight="duotone" size={15} className="text-[var(--muted-foreground)]"/>}
-                      </div>
-                      <span className={`text-sm ${f.tipo==="saldo"?"font-bold":"font-medium"}`}>{f.desc}</span>
-                    </div>
-                    <span className={`text-base font-bold ${
-                      f.tipo==="entrada"?"text-emerald-600":f.tipo==="saida"?"text-red-500":"text-[var(--foreground)]"
-                    }`}>
-                      {f.valor>0?"+" : ""}{formatCurrency(Math.abs(f.valor))}
+              <div className="space-y-3 p-5">
+                {[
+                  { desc: "Entradas", valor: receitaTotal, tipo: "entrada" },
+                  { desc: "Saídas", valor: -despesaTotal, tipo: "saida" },
+                  { desc: "Saldo final", valor: lucro, tipo: "saldo" },
+                ].map((item) => (
+                  <div key={item.desc} className={`flex items-center justify-between rounded-xl border p-4 ${item.tipo === "entrada" ? "border-emerald-100 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/20" : item.tipo === "saida" ? "border-red-100 bg-red-50 dark:border-red-900 dark:bg-red-950/20" : "border-[var(--border)] bg-[var(--muted)]"}`}>
+                    <span className="text-sm font-medium">{item.desc}</span>
+                    <span className={`text-base font-bold ${item.tipo === "entrada" ? "text-emerald-600" : item.tipo === "saida" ? "text-red-500" : "text-[var(--foreground)]"}`}>
+                      {item.valor > 0 ? "+" : ""}{formatCurrency(item.valor)}
                     </span>
                   </div>
                 ))}
@@ -283,7 +393,17 @@ export default function FinanceiroPage() {
         </Tabs>
       </div>
 
-      <TransacaoDrawer transacao={selected} open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} />
+      {drawerOpen && (
+        <TransacaoDrawer
+          key={selected?.id ?? "nova-transacao"}
+          transacao={selected}
+          open={drawerOpen}
+          unidades={unidades}
+          fallbackUnidadeId={fallbackUnidadeId}
+          onClose={() => setDrawerOpen(false)}
+          onSave={handleSave}
+        />
+      )}
     </div>
   )
 }

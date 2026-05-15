@@ -1,6 +1,7 @@
 "use client"
 
 import { use } from "react"
+import Link from "next/link"
 import AgendarBasePage from "../page"
 
 const UNIDADES: Record<string, { nome: string; endereco: string; cor: string }> = {
@@ -19,7 +20,7 @@ export default function AgendarSlugPage({ params }: { params: Promise<{ slug: st
         <div className="text-6xl">✂️</div>
         <h1 className="text-2xl font-bold">Unidade não encontrada</h1>
         <p className="text-[var(--muted-foreground)]">O link <code className="bg-[var(--muted)] px-1 rounded">/agendar/{slug}</code> não existe.</p>
-        <a href="/agendar" className="rounded-xl bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-white">Ver unidades disponíveis</a>
+        <Link href="/agendar" className="rounded-xl bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-white">Ver unidades disponíveis</Link>
       </div>
     )
   }

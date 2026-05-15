@@ -7,14 +7,10 @@ import {
   Scissors, Eye, EyeSlash, ArrowRight,
   LockKey, EnvelopeSimple, SpinnerGap
 } from "@phosphor-icons/react"
+import { createClient } from "@/lib/client"
+import { getCurrentProfile } from "@/lib/supabase-auth"
 import { useAuthStore } from "@/store/auth-store"
 import { useToast } from "@/components/ui/toast"
-
-const DEMO_USERS = [
-  { email: "admin@barberpro.com",    senha: "123456", nome: "Admin BarberPro", role: "admin"    as const },
-  { email: "joao@barberpro.com",     senha: "123456", nome: "João Mendes",     role: "barbeiro" as const },
-  { email: "caixa@barberpro.com",    senha: "123456", nome: "Caixa",          role: "caixa"    as const },
-]
 
 export default function LoginPage() {
   const router = useRouter()
@@ -31,23 +27,29 @@ export default function LoginPage() {
     setLoading(true)
     setErro("")
 
-    await new Promise((r) => setTimeout(r, 800))
+    const supabase = createClient()
+    const normalizedEmail = email.toLowerCase().trim()
+    const { error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: senha,
+    })
 
-    const user = DEMO_USERS.find(
-      (u) => u.email === email.toLowerCase().trim() && u.senha === senha
-    )
-
-    if (!user) {
+    if (error) {
       setErro("E-mail ou senha incorretos.")
       setLoading(false)
       return
     }
 
-    login(
-      { id: crypto.randomUUID(), nome: user.nome, email: user.email, role: user.role },
-      "demo_token"
-    )
-    toast({ type: "success", title: `Bem-vindo, ${user.nome.split(" ")[0]}!`, description: "Login realizado com sucesso." })
+    const profile = await getCurrentProfile()
+    if (!profile) {
+      await supabase.auth.signOut()
+      setErro("Usuário autenticado, mas sem perfil ativo no sistema.")
+      setLoading(false)
+      return
+    }
+
+    login(profile, "")
+    toast({ type: "success", title: `Bem-vindo, ${profile.nome.split(" ")[0]}!`, description: "Login realizado com sucesso." })
     router.push("/dashboard")
   }
 
@@ -173,23 +175,9 @@ export default function LoginPage() {
             </motion.button>
           </form>
 
-          {/* Demo hints */}
-          <div className="mt-6 rounded-xl border border-white/8 p-3" style={{ background: "rgba(255,255,255,0.03)" }}>
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/30">Acesso demo</p>
-            <div className="space-y-1.5">
-              {DEMO_USERS.map((u) => (
-                <button
-                  key={u.email}
-                  type="button"
-                  onClick={() => { setEmail(u.email); setSenha(u.senha) }}
-                  className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-white/5"
-                >
-                  <span className="text-xs text-white/60">{u.email}</span>
-                  <span className="rounded-full border border-white/10 px-1.5 py-px text-[9px] font-medium uppercase text-white/40">{u.role}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <p className="mt-6 text-center text-xs text-white/35">
+            Use um usuário criado no Supabase Auth e vinculado em perfis.
+          </p>
         </div>
       </motion.div>
     </div>

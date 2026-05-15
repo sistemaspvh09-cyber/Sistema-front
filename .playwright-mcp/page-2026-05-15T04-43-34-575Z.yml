@@ -1,0 +1,24 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - img [ref=e7]
+      - heading "BarberPro" [level=1] [ref=e10]
+      - paragraph [ref=e11]: Sistema de Gestão
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - text: E-mail
+        - generic [ref=e14]:
+          - img [ref=e15]
+          - textbox "seu@email.com" [ref=e18]
+      - generic [ref=e19]:
+        - text: Senha
+        - generic [ref=e20]:
+          - img [ref=e21]
+          - textbox "••••••••" [ref=e24]
+          - button [ref=e25]:
+            - img [ref=e26]
+      - button "Entrar" [ref=e28]:
+        - text: Entrar
+        - img [ref=e29]
+    - paragraph [ref=e31]: Use um usuário criado no Supabase Auth e vinculado em perfis.
+  - region "Notifications alt+T"

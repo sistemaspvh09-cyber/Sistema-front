@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   SquaresFour, ShoppingCart, CalendarBlank, Users, CurrencyDollar,
@@ -12,6 +12,7 @@ import {
   CashRegister, Globe, QrCode, Money, StarHalf, Cake
 } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
+import { createClient } from "@/lib/client"
 import { useAuthStore, type UserRole } from "@/store/auth-store"
 import { useUIStore } from "@/store/ui-store"
 import { Avatar } from "@/components/ui/avatar"
@@ -119,6 +120,7 @@ function NavLink({ item, active, collapsed }: { item: NavItem; active: boolean; 
 /* ── Conteúdo interno ────────────────────────────────────────────── */
 function SidebarContent({ onClose, forceExpanded }: { onClose?: () => void; forceExpanded?: boolean }) {
   const pathname  = usePathname()
+  const router = useRouter()
   const { user, logout } = useAuthStore()
   const { sidebarCollapsed, toggleSidebar } = useUIStore()
   const role = user?.role ?? "admin"
@@ -126,6 +128,12 @@ function SidebarContent({ onClose, forceExpanded }: { onClose?: () => void; forc
 
   const visibleNav     = nav.filter(i => !i.roles || i.roles.includes(role))
   const visibleUserNav = userNav.filter(i => !i.roles || i.roles.includes(role))
+
+  async function handleLogout() {
+    await createClient().auth.signOut()
+    logout()
+    router.replace("/login")
+  }
 
   return (
     <div className="flex h-full flex-col" style={{ background: "var(--sidebar-bg)" }}>
@@ -215,7 +223,7 @@ function SidebarContent({ onClose, forceExpanded }: { onClose?: () => void; forc
         {collapsed ? (
           <Tip label={`Sair — ${user?.nome ?? "Usuário"}`}>
             <button
-              onClick={logout}
+              onClick={handleLogout}
               className="flex w-full items-center justify-center rounded-xl p-2.5 transition-all hover:bg-red-500/20 hover:text-red-400"
               style={{ color: "var(--sidebar-muted-fg)" }}
             >
@@ -237,7 +245,7 @@ function SidebarContent({ onClose, forceExpanded }: { onClose?: () => void; forc
               </p>
             </div>
             <button
-              onClick={logout}
+              onClick={handleLogout}
               className="rounded-lg p-1.5 transition-all hover:bg-red-500/20 hover:text-red-400 hover:scale-110"
               style={{ color: "var(--sidebar-muted-fg)" }}
             >

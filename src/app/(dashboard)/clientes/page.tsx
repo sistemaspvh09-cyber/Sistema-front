@@ -1,116 +1,171 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { motion } from "framer-motion"
-import { MagnifyingGlass, Phone, EnvelopeSimple, CalendarBlank, Plus, PencilSimple, Eye, Warning } from "@phosphor-icons/react"
+import {
+  CalendarBlank,
+  EnvelopeSimple,
+  MagnifyingGlass,
+  PencilSimple,
+  Phone,
+  Plus,
+  Warning,
+} from "@phosphor-icons/react"
 import { Header } from "@/components/layout/header"
+import { ActiveFilterTabs, DataFeedback } from "@/components/dashboard/data-state"
 import { Avatar } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
 import { Drawer, DrawerFooter } from "@/components/ui/drawer"
+import { Input } from "@/components/ui/input"
+import { Progress } from "@/components/ui/progress"
+import { Select } from "@/components/ui/select"
 import { TierBadge } from "@/components/ui/tier-badge"
-import { calcTier, calcPontos, pontosParaProximoTier, diasSemVisita, statusRisco } from "@/lib/vip"
-import { formatCurrency, formatDate } from "@/lib/utils"
+import { createClient } from "@/lib/client"
+import { formatCurrency } from "@/lib/utils"
+import { calcPontos, calcTier, diasSemVisita, pontosParaProximoTier, statusRisco } from "@/lib/vip"
+import { activeMatches, asMoney, type ActiveFilter, type ClienteRow, type UnidadeRow } from "@/lib/supabase-records"
+import { useUpdateRow, useUpsertRow } from "@/lib/use-supabase-crud"
+import { useAuthStore } from "@/store/auth-store"
 import { useToast } from "@/components/ui/toast"
 
-interface Cliente {
-  id: string; nome: string; telefone: string; email: string
-  totalVisitas: number; ultimaVisita: string; gasto: number
-  nascimento: string; observacoes: string
+interface ClienteForm {
+  unidade_id: string
+  nome: string
+  telefone: string
+  email: string
+  nascimento: string
+  observacoes: string
+  ativo: boolean
 }
 
-const clientesIniciais: Cliente[] = [
-  { id: "1", nome: "Carlos Silva",   telefone: "(11) 98765-4321", email: "carlos@email.com",  totalVisitas: 32, ultimaVisita: "2026-05-13", gasto: 2240, nascimento: "1990-03-15", observacoes: "Prefere corte degradê curto" },
-  { id: "2", nome: "Pedro Santos",   telefone: "(11) 91234-5678", email: "",                   totalVisitas: 18, ultimaVisita: "2026-05-13", gasto: 810,  nascimento: "1985-07-22", observacoes: "" },
-  { id: "3", nome: "Lucas Oliveira", telefone: "(11) 99876-5432", email: "lucas@email.com",   totalVisitas: 41, ultimaVisita: "2026-05-10", gasto: 2870, nascimento: "1995-11-08", observacoes: "Alérgico ao produto X" },
-  { id: "4", nome: "Rafael Costa",   telefone: "(11) 94567-8901", email: "",                   totalVisitas: 7,  ultimaVisita: "2026-04-28", gasto: 490,  nascimento: "2000-01-30", observacoes: "" },
-  { id: "5", nome: "Bruno Lima",     telefone: "(11) 92345-6789", email: "bruno@email.com",   totalVisitas: 15, ultimaVisita: "2026-05-08", gasto: 1125, nascimento: "1988-06-14", observacoes: "" },
-  { id: "6", nome: "Diego Martins",  telefone: "(11) 93456-7890", email: "",                   totalVisitas: 5,  ultimaVisita: "2026-05-12", gasto: 350,  nascimento: "2002-09-01", observacoes: "Novo cliente" },
-  { id: "7", nome: "Thiago Souza",   telefone: "(11) 95678-9012", email: "thiago@email.com",  totalVisitas: 51, ultimaVisita: "2026-05-06", gasto: 3570, nascimento: "1982-12-25", observacoes: "Cliente fiel desde 2020" },
-]
+const emptyForm: ClienteForm = {
+  unidade_id: "",
+  nome: "",
+  telefone: "",
+  email: "",
+  nascimento: "",
+  observacoes: "",
+  ativo: true,
+}
 
 const riscoConfig = {
-  ativo:    { label: "Ativo",    color: "text-emerald-600", dot: "bg-emerald-500" },
-  atencao:  { label: "Atenção",  color: "text-amber-500",  dot: "bg-amber-500"   },
-  risco:    { label: "Em risco", color: "text-orange-500", dot: "bg-orange-500"  },
-  perdido:  { label: "Perdido",  color: "text-red-500",    dot: "bg-red-500"     },
+  ativo: { label: "Ativo", color: "text-emerald-600", dot: "bg-emerald-500" },
+  atencao: { label: "Atenção", color: "text-amber-500", dot: "bg-amber-500" },
+  risco: { label: "Em risco", color: "text-orange-500", dot: "bg-orange-500" },
+  perdido: { label: "Perdido", color: "text-red-500", dot: "bg-red-500" },
+}
+
+function normaliseCliente(cliente: ClienteRow | null, fallbackUnidadeId: string): ClienteForm {
+  if (!cliente) return { ...emptyForm, unidade_id: fallbackUnidadeId }
+
+  return {
+    unidade_id: cliente.unidade_id ?? fallbackUnidadeId,
+    nome: cliente.nome,
+    telefone: cliente.telefone ?? "",
+    email: cliente.email ?? "",
+    nascimento: cliente.nascimento ?? "",
+    observacoes: cliente.observacoes ?? "",
+    ativo: cliente.ativo !== false,
+  }
 }
 
 function ClienteDrawer({
-  cliente, open, onClose, onSave
-}: { cliente: Cliente | null; open: boolean; onClose: () => void; onSave: (c: Cliente) => void }) {
+  cliente,
+  open,
+  unidades,
+  fallbackUnidadeId,
+  onClose,
+  onSave,
+}: {
+  cliente: ClienteRow | null
+  open: boolean
+  unidades: UnidadeRow[]
+  fallbackUnidadeId: string
+  onClose: () => void
+  onSave: (payload: Record<string, unknown>) => void
+}) {
   const isNew = !cliente?.id
-  const [form, setForm] = useState<Omit<Cliente, "id">>({
-    nome: cliente?.nome ?? "", telefone: cliente?.telefone ?? "",
-    email: cliente?.email ?? "", totalVisitas: cliente?.totalVisitas ?? 0,
-    ultimaVisita: cliente?.ultimaVisita ?? new Date().toISOString().slice(0,10),
-    gasto: cliente?.gasto ?? 0, nascimento: cliente?.nascimento ?? "",
-    observacoes: cliente?.observacoes ?? "",
-  })
+  const [form, setForm] = useState<ClienteForm>(() => normaliseCliente(cliente, fallbackUnidadeId))
 
-  // Resetar quando cliente muda
-  useState(() => { if (cliente) setForm({ nome: cliente.nome, telefone: cliente.telefone, email: cliente.email, totalVisitas: cliente.totalVisitas, ultimaVisita: cliente.ultimaVisita, gasto: cliente.gasto, nascimento: cliente.nascimento, observacoes: cliente.observacoes }) })
+  function upd<K extends keyof ClienteForm>(key: K, value: ClienteForm[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }))
+  }
 
-  function upd(k: keyof typeof form, v: string | number) { setForm(p => ({ ...p, [k]: v })) }
-
-  const tier = calcTier(form.totalVisitas, form.gasto)
-  const prox = pontosParaProximoTier(form.totalVisitas, form.gasto)
+  const visitas = cliente?.total_visitas ?? 0
+  const gasto = asMoney(cliente?.total_gasto)
+  const tier = calcTier(visitas, gasto)
+  const prox = pontosParaProximoTier(visitas, gasto)
 
   return (
-    <Drawer open={open} onClose={onClose} title={isNew ? "Novo cliente" : "Editar cliente"} description={isNew ? "Preencha os dados do novo cliente" : `Editando: ${cliente?.nome}`} size="md">
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title={isNew ? "Novo cliente" : "Editar cliente"}
+      description={isNew ? "Cadastre um cliente no Supabase" : `Editando: ${cliente?.nome}`}
+      size="md"
+    >
       <div className="space-y-4 pb-4">
-
-        {/* Tier preview */}
         {!isNew && (
           <div className={`rounded-2xl border ${tier.corBorda} bg-gradient-to-r ${tier.corGradient} p-4 text-white`}>
-            <div className="flex items-center justify-between mb-2">
+            <div className="mb-2 flex items-center justify-between">
               <TierBadge tier={tier} size="sm" />
-              <span className="text-sm font-bold">{calcPontos(form.gasto, tier)} pts</span>
+              <span className="text-sm font-bold">{calcPontos(gasto, tier)} pts</span>
             </div>
             {prox.tier && (
               <>
-                <p className="text-xs opacity-80 mb-1.5">Faltam {prox.faltamVisitas} visitas e {formatCurrency(prox.faltamGasto)} para {prox.tier.label}</p>
-                <Progress value={(prox.progressoVisitas + prox.progressoGasto) / 2} barClassName="bg-white/60" className="[&>div]:bg-[var(--muted)]" />
+                <p className="mb-1.5 text-xs opacity-80">
+                  Faltam {prox.faltamVisitas} visitas e {formatCurrency(prox.faltamGasto)} para {prox.tier.label}
+                </p>
+                <Progress value={(prox.progressoVisitas + prox.progressoGasto) / 2} barClassName="bg-white/60" />
               </>
             )}
           </div>
         )}
 
         <div className="grid gap-3 sm:grid-cols-2">
+          {unidades.length > 0 && (
+            <div className="sm:col-span-2 space-y-1">
+              <label className="text-xs font-medium text-[var(--muted-foreground)]">Unidade *</label>
+              <Select
+                options={unidades.map((u) => ({ value: u.id, label: u.nome }))}
+                value={form.unidade_id}
+                onChange={(event) => upd("unidade_id", event.target.value)}
+              />
+            </div>
+          )}
           <div className="sm:col-span-2 space-y-1">
             <label className="text-xs font-medium text-[var(--muted-foreground)]">Nome completo *</label>
-            <Input value={form.nome} onChange={e => upd("nome", e.target.value)} placeholder="Nome do cliente" />
+            <Input value={form.nome} onChange={(event) => upd("nome", event.target.value)} placeholder="Nome do cliente" />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-foreground)]">Telefone *</label>
-            <Input value={form.telefone} onChange={e => upd("telefone", e.target.value)} placeholder="(11) 9xxxx-xxxx" />
+            <Input value={form.telefone} onChange={(event) => upd("telefone", event.target.value)} placeholder="(11) 9xxxx-xxxx" />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-foreground)]">Nascimento</label>
-            <Input type="date" value={form.nascimento} onChange={e => upd("nascimento", e.target.value)} />
+            <Input type="date" value={form.nascimento} onChange={(event) => upd("nascimento", event.target.value)} />
           </div>
           <div className="sm:col-span-2 space-y-1">
             <label className="text-xs font-medium text-[var(--muted-foreground)]">E-mail</label>
-            <Input value={form.email} onChange={e => upd("email", e.target.value)} placeholder="email@exemplo.com" />
+            <Input type="email" value={form.email} onChange={(event) => upd("email", event.target.value)} placeholder="email@exemplo.com" />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-foreground)]">Total visitas</label>
-            <Input type="number" value={form.totalVisitas} onChange={e => upd("totalVisitas", Number(e.target.value))} />
+            <Input value={String(visitas)} readOnly className="opacity-70" />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-[var(--muted-foreground)]">Total gasto (R$)</label>
-            <Input type="number" value={form.gasto} onChange={e => upd("gasto", Number(e.target.value))} />
+            <label className="text-xs font-medium text-[var(--muted-foreground)]">Total gasto</label>
+            <Input value={formatCurrency(gasto)} readOnly className="opacity-70" />
           </div>
           <div className="sm:col-span-2 space-y-1">
             <label className="text-xs font-medium text-[var(--muted-foreground)]">Observações</label>
             <textarea
               value={form.observacoes}
-              onChange={e => upd("observacoes", e.target.value)}
+              onChange={(event) => upd("observacoes", event.target.value)}
               rows={3}
-              placeholder="Preferências, alergias, etc..."
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--input)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 resize-none"
+              placeholder="Preferências, alergias, etc."
+              className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--input)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
             />
           </div>
         </div>
@@ -118,7 +173,21 @@ function ClienteDrawer({
 
       <DrawerFooter>
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
-        <Button onClick={() => onSave({ ...form, id: cliente?.id ?? crypto.randomUUID() })}>
+        <Button
+          onClick={() =>
+            onSave({
+              ...(cliente?.id ? { id: cliente.id } : {}),
+              unidade_id: form.unidade_id || null,
+              nome: form.nome.trim(),
+              telefone: form.telefone.trim(),
+              email: form.email.trim() || null,
+              nascimento: form.nascimento || null,
+              observacoes: form.observacoes.trim() || null,
+              ativo: form.ativo,
+            })
+          }
+          disabled={!form.nome.trim() || !form.telefone.trim()}
+        >
           {isNew ? "Cadastrar" : "Salvar alterações"}
         </Button>
       </DrawerFooter>
@@ -127,146 +196,210 @@ function ClienteDrawer({
 }
 
 export default function ClientesPage() {
-  const [clientes, setClientes] = useState(clientesIniciais)
+  const { user } = useAuthStore()
+  const { toast } = useToast()
   const [busca, setBusca] = useState("")
   const [filtroTier, setFiltroTier] = useState("todos")
+  const [filtroAtivo, setFiltroAtivo] = useState<ActiveFilter>("ativos")
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [selected, setSelected] = useState<Cliente | null>(null)
-  const { toast } = useToast()
+  const [selected, setSelected] = useState<ClienteRow | null>(null)
+  const clientesKey = ["clientes"] as const
 
-  const filtrados = clientes.filter(c => {
-    const matchBusca = c.nome.toLowerCase().includes(busca.toLowerCase()) || c.telefone.includes(busca)
-    const tier = calcTier(c.totalVisitas, c.gasto).tier
-    const matchTier = filtroTier === "todos" || tier === filtroTier
-    return matchBusca && matchTier
+  const clientesQuery = useQuery({
+    queryKey: clientesKey,
+    queryFn: async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from("clientes")
+        .select("*")
+        .order("created_at", { ascending: false })
+
+      if (error) throw error
+      return (data ?? []) as ClienteRow[]
+    },
   })
 
-  function openNew() { setSelected(null); setDrawerOpen(true) }
-  function openEdit(c: Cliente) { setSelected(c); setDrawerOpen(true) }
+  const unidadesQuery = useQuery({
+    queryKey: ["unidades", "select"],
+    queryFn: async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase.from("unidades").select("*").order("nome")
+      if (error) throw error
+      return (data ?? []) as UnidadeRow[]
+    },
+  })
 
-  function handleSave(c: Cliente) {
-    setClientes(prev => {
-      const exists = prev.find(x => x.id === c.id)
-      const next = exists ? prev.map(x => x.id === c.id ? c : x) : [...prev, c]
-      return next
-    })
-    toast({ type: "success", title: selected ? "Cliente atualizado!" : "Cliente cadastrado!", description: c.nome })
+  const upsert = useUpsertRow("clientes", clientesKey)
+  const update = useUpdateRow("clientes", clientesKey)
+  const unidades = unidadesQuery.data ?? []
+  const fallbackUnidadeId = user?.unidadeId ?? unidades[0]?.id ?? ""
+  const clientes = useMemo(() => clientesQuery.data ?? [], [clientesQuery.data])
+
+  const filtrados = useMemo(
+    () =>
+      clientes.filter((cliente) => {
+        const buscaNormalizada = busca.toLowerCase()
+        const matchBusca =
+          cliente.nome.toLowerCase().includes(buscaNormalizada) ||
+          (cliente.telefone ?? "").includes(busca)
+        const tier = calcTier(cliente.total_visitas ?? 0, asMoney(cliente.total_gasto)).tier
+        const matchTier = filtroTier === "todos" || tier === filtroTier
+        const matchAtivo = activeMatches(cliente.ativo, filtroAtivo)
+        return matchBusca && matchTier && matchAtivo
+      }),
+    [busca, clientes, filtroAtivo, filtroTier]
+  )
+
+  function openNew() {
+    setSelected(null)
+    setDrawerOpen(true)
+  }
+
+  function openEdit(cliente: ClienteRow) {
+    setSelected(cliente)
+    setDrawerOpen(true)
+  }
+
+  async function handleSave(payload: Record<string, unknown>) {
+    await upsert.mutateAsync(payload)
+    toast({ type: "success", title: selected ? "Cliente atualizado!" : "Cliente cadastrado!" })
     setDrawerOpen(false)
   }
 
-  const totalGasto = clientes.reduce((a, c) => a + c.gasto, 0)
-  const platinum = clientes.filter(c => calcTier(c.totalVisitas, c.gasto).tier === "platinum").length
+  async function toggleActive(cliente: ClienteRow) {
+    const next = cliente.ativo === false
+    const action = next ? "reativar" : "desativar"
+    if (!window.confirm(`Confirmar ${action} o cliente ${cliente.nome}?`)) return
+
+    await update.mutateAsync({ id: cliente.id, payload: { ativo: next } })
+    toast({ type: "success", title: next ? "Cliente reativado!" : "Cliente desativado!", description: cliente.nome })
+  }
+
+  const totalGasto = clientes.filter((c) => c.ativo !== false).reduce((sum, cliente) => sum + asMoney(cliente.total_gasto), 0)
+  const platinum = clientes.filter((cliente) => calcTier(cliente.total_visitas ?? 0, asMoney(cliente.total_gasto)).tier === "platinum").length
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden">
       <Header title="Clientes" subtitle={`${clientes.length} clientes`} action={{ label: "Novo cliente", onClick: openNew }} />
 
-      <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-5 animate-fade-in">
-
-        {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="flex-1 space-y-5 overflow-y-auto p-4 animate-fade-in lg:p-6">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[
-            { label: "Total",     value: clientes.length,           color: ""                  },
-            { label: "Platinum",  value: platinum,                  color: "text-violet-500"   },
-            { label: "Ativos",    value: clientes.filter(c => diasSemVisita(c.ultimaVisita) <= 30).length, color: "text-emerald-600" },
+            { label: "Total", value: clientes.length, color: "" },
+            { label: "Platinum", value: platinum, color: "text-violet-500" },
+            { label: "Ativos", value: clientes.filter((cliente) => cliente.ativo !== false).length, color: "text-emerald-600" },
             { label: "Faturamento", value: formatCurrency(totalGasto), color: "text-[var(--primary)]" },
-          ].map((s) => (
-            <div key={s.label} className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 text-center">
-              <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
-              <p className="text-xs text-[var(--muted-foreground)]">{s.label}</p>
+          ].map((stat) => (
+            <div key={stat.label} className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 text-center">
+              <p className={`text-xl font-bold ${stat.color}`}>{stat.value}</p>
+              <p className="text-xs text-[var(--muted-foreground)]">{stat.label}</p>
             </div>
           ))}
         </div>
 
-        {/* Filtros */}
         <div className="flex flex-wrap items-center gap-3">
-          <Input leftIcon={<MagnifyingGlass weight="duotone" size={14} />} placeholder="Buscar..." value={busca} onChange={e => setBusca(e.target.value)} className="w-52" />
+          <Input leftIcon={<MagnifyingGlass weight="duotone" size={14} />} placeholder="Buscar..." value={busca} onChange={(event) => setBusca(event.target.value)} className="w-52" />
+          <ActiveFilterTabs value={filtroAtivo} onChange={setFiltroAtivo} />
           <div className="flex flex-wrap gap-1.5">
-            {[["todos","Todos"],["bronze","Bronze"],["silver","Prata"],["gold","Ouro"],["platinum","Platinum"]].map(([v,l]) => (
-              <button key={v} onClick={() => setFiltroTier(v)}
-                className={`rounded-full px-3 py-1 text-xs font-medium border transition-all ${filtroTier===v ? "bg-[var(--primary)] text-white border-[var(--primary)]" : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)]/50"}`}
-              >{l}</button>
+            {[["todos", "Todos"], ["bronze", "Bronze"], ["silver", "Prata"], ["gold", "Ouro"], ["platinum", "Platinum"]].map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => setFiltroTier(value)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-all ${
+                  filtroTier === value
+                    ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                    : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)]/50"
+                }`}
+              >
+                {label}
+              </button>
             ))}
           </div>
         </div>
 
-        {/* Cards */}
+        <DataFeedback
+          isLoading={clientesQuery.isLoading}
+          error={clientesQuery.error}
+          isEmpty={!clientesQuery.isLoading && filtrados.length === 0}
+          onRetry={() => clientesQuery.refetch()}
+        />
+
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filtrados.map((c, i) => {
-            const tier = calcTier(c.totalVisitas, c.gasto)
-            const dias = diasSemVisita(c.ultimaVisita)
+          {filtrados.map((cliente, index) => {
+            const tier = calcTier(cliente.total_visitas ?? 0, asMoney(cliente.total_gasto))
+            const dias = cliente.ultima_visita ? diasSemVisita(cliente.ultima_visita) : 999
             const risco = statusRisco(dias)
             const riscoC = riscoConfig[risco]
-            const pontos = calcPontos(c.gasto, tier)
+            const pontos = calcPontos(asMoney(cliente.total_gasto), tier)
+            const inactive = cliente.ativo === false
 
             return (
               <motion.div
-                key={c.id}
+                key={cliente.id}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.04 }}
-                className={`group rounded-2xl border bg-[var(--card)] overflow-hidden hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer ${tier.corBorda}`}
-                onClick={() => openEdit(c)}
+                transition={{ delay: index * 0.03 }}
+                className={`group overflow-hidden rounded-2xl border bg-[var(--card)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg ${tier.corBorda} ${inactive ? "opacity-55" : ""}`}
               >
-                {/* Faixa de tier */}
                 <div className={`h-1 w-full bg-gradient-to-r ${tier.corGradient}`} />
-
                 <div className="p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <Avatar name={c.nome} size="md" />
+                  <div className="mb-3 flex items-start justify-between">
+                    <Avatar name={cliente.nome} size="md" />
                     <div className="flex flex-col items-end gap-1">
                       <TierBadge tier={tier} size="xs" />
                       <div className={`flex items-center gap-1 text-[10px] font-medium ${riscoC.color}`}>
                         <span className={`h-1.5 w-1.5 rounded-full ${riscoC.dot}`} />
-                        {riscoC.label}
+                        {inactive ? "Inativo" : riscoC.label}
                       </div>
                     </div>
                   </div>
 
-                  <p className="font-semibold text-sm truncate">{c.nome}</p>
-
+                  <p className="truncate text-sm font-semibold">{cliente.nome}</p>
                   <div className="mt-1.5 space-y-0.5">
                     <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
-                      <Phone weight="duotone" size={11} />{c.telefone}
+                      <Phone weight="duotone" size={11} />
+                      {cliente.telefone || "Sem telefone"}
                     </div>
-                    {c.email && (
-                      <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] truncate">
-                        <EnvelopeSimple weight="duotone" size={11} />{c.email}
+                    {cliente.email && (
+                      <div className="flex items-center gap-1.5 truncate text-xs text-[var(--muted-foreground)]">
+                        <EnvelopeSimple weight="duotone" size={11} />
+                        {cliente.email}
                       </div>
                     )}
                     <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
                       <CalendarBlank weight="duotone" size={11} />
-                      {dias === 0 ? "Hoje" : dias === 1 ? "Ontem" : `${dias}d atrás`}
+                      {cliente.ultima_visita ? (dias === 0 ? "Hoje" : dias === 1 ? "Ontem" : `${dias}d atrás`) : "Sem visitas"}
                     </div>
-                    {c.observacoes && (
-                      <div className="flex items-center gap-1.5 text-xs text-amber-500 italic truncate">
-                        <Warning weight="duotone" size={11} className="shrink-0" />{c.observacoes}
+                    {cliente.observacoes && (
+                      <div className="flex items-center gap-1.5 truncate text-xs italic text-amber-500">
+                        <Warning weight="duotone" size={11} className="shrink-0" />
+                        {cliente.observacoes}
                       </div>
                     )}
                   </div>
 
                   <div className="mt-3 grid grid-cols-3 gap-1.5">
                     <div className="rounded-lg bg-[var(--muted)] p-2 text-center">
-                      <p className="text-sm font-bold">{c.totalVisitas}</p>
+                      <p className="text-sm font-bold">{cliente.total_visitas ?? 0}</p>
                       <p className="text-[9px] text-[var(--muted-foreground)]">visitas</p>
                     </div>
                     <div className="rounded-lg bg-[var(--muted)] p-2 text-center">
-                      <p className="text-xs font-bold text-[var(--primary)]">{formatCurrency(c.gasto)}</p>
+                      <p className="text-xs font-bold text-[var(--primary)]">{formatCurrency(asMoney(cliente.total_gasto))}</p>
                       <p className="text-[9px] text-[var(--muted-foreground)]">gasto</p>
                     </div>
                     <div className="rounded-lg bg-[var(--muted)] p-2 text-center">
-                      <p className="text-sm font-bold" style={{ color: tier.corTexto.replace("text-","") }}>{pontos}</p>
+                      <p className="text-sm font-bold">{pontos}</p>
                       <p className="text-[9px] text-[var(--muted-foreground)]">pontos</p>
                     </div>
                   </div>
 
-                  {/* Botões */}
-                  <div className="mt-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button size="sm" variant="outline" className="flex-1 h-7 text-xs gap-1" onClick={e => { e.stopPropagation(); openEdit(c) }}>
-                      <PencilSimple size={11} weight="bold" />Editar
+                  <div className="mt-3 flex gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+                    <Button size="sm" variant="outline" className="h-7 flex-1 gap-1 text-xs" onClick={() => openEdit(cliente)}>
+                      <PencilSimple size={11} weight="bold" />
+                      Editar
                     </Button>
-                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs">
-                      <Eye size={13} weight="duotone" />
+                    <Button size="sm" variant={inactive ? "secondary" : "ghost"} className="h-7 px-2 text-xs" onClick={() => toggleActive(cliente)}>
+                      {inactive ? "Reativar" : "Desativar"}
                     </Button>
                   </div>
                 </div>
@@ -274,12 +407,11 @@ export default function ClientesPage() {
             )
           })}
 
-          {/* Card novo */}
           <motion.button
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             onClick={openNew}
-            className="rounded-2xl border-2 border-dashed border-[var(--border)] flex flex-col items-center justify-center gap-2 text-[var(--muted-foreground)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all min-h-[200px]"
+            className="flex min-h-[200px] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[var(--border)] text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)] hover:text-[var(--primary)]"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl border-2 border-dashed border-current">
               <Plus weight="bold" size={18} />
@@ -289,12 +421,17 @@ export default function ClientesPage() {
         </div>
       </div>
 
-      <ClienteDrawer
-        cliente={selected}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        onSave={handleSave}
-      />
+      {drawerOpen && (
+        <ClienteDrawer
+          key={selected?.id ?? "novo-cliente"}
+          cliente={selected}
+          open={drawerOpen}
+          unidades={unidades}
+          fallbackUnidadeId={fallbackUnidadeId}
+          onClose={() => setDrawerOpen(false)}
+          onSave={handleSave}
+        />
+      )}
     </div>
   )
 }

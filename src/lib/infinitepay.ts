@@ -10,6 +10,8 @@
  * 4. Sistema reconcilia automaticamente a venda
  */
 
+import { createHmac, timingSafeEqual } from "crypto"
+
 const INFINITEPAY_BASE_URL =
   process.env.INFINITEPAY_BASE_URL ?? "https://api.infinitepay.io/v2"
 
@@ -101,15 +103,14 @@ export const infinitePay = {
     const secret = process.env.INFINITEPAY_WEBHOOK_SECRET ?? ""
     if (!secret) return false
 
-    const crypto = require("crypto")
-    const expected = crypto
-      .createHmac("sha256", secret)
+    const expected = createHmac("sha256", secret)
       .update(payload)
       .digest("hex")
+    const signatureBuffer = Buffer.from(signature)
+    const expectedBuffer = Buffer.from(expected)
 
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expected)
-    )
+    if (signatureBuffer.length !== expectedBuffer.length) return false
+
+    return timingSafeEqual(signatureBuffer, expectedBuffer)
   },
 }

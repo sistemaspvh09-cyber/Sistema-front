@@ -4,18 +4,24 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { formatCurrency } from "@/lib/utils"
 import type { GraficoData } from "@/lib/types"
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+type TooltipPayload = {
+  name?: string
+  value?: number
+  fill?: string
+}
+
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipPayload[]; label?: string }) {
   if (!active || !payload?.length) return null
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-xl text-xs">
       <p className="mb-2 font-semibold text-[var(--foreground)]">{label}</p>
-      {payload.map((p: any) => (
+      {payload.map((p) => (
         <div key={p.name} className="flex items-center justify-between gap-4">
           <span className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full" style={{ background: p.fill }} />
             <span className="text-[var(--muted-foreground)] capitalize">{p.name}</span>
           </span>
-          <span className="font-semibold">{formatCurrency(p.value)}</span>
+          <span className="font-semibold">{formatCurrency(Number(p.value ?? 0))}</span>
         </div>
       ))}
     </div>

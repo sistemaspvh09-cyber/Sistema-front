@@ -69,8 +69,8 @@ export function PaymentModal({ total, onConfirm, onClose }: PaymentModalProps) {
     try {
       await onConfirm(metodo)
       setStep("success")
-    } catch (err: any) {
-      setErrorMsg(err?.message ?? "Erro ao processar pagamento")
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : "Erro ao processar pagamento")
       setStep("error")
     }
   }

@@ -2,14 +2,12 @@
 
 import { useState } from "react"
 import { Store, Clock, Bell, CreditCard, Shield, Check } from "lucide-react"
-import { WhatsappLogo, GoogleChromeLogo, CalendarCheck, Robot } from "@phosphor-icons/react"
+import { WhatsappLogo, GoogleChromeLogo, CalendarCheck } from "@phosphor-icons/react"
 import { Header } from "@/components/layout/header"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-
-const dias = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
 
 const horariosIniciais = [
   { dia: "Seg", aberto: true,  abertura: "08:00", fechamento: "20:00" },
@@ -212,7 +210,7 @@ export default function ConfiguracoesPage() {
 
           {/* WhatsApp */}
           <TabsContent value="whatsapp" className="space-y-5">
-            <Section title="WhatsApp API" description="Envio automático de confirmações e lembretes via WhatsApp" icon={WhatsappLogo as any}>
+            <Section title="WhatsApp API" description="Envio automático de confirmações e lembretes via WhatsApp" icon={WhatsappLogo}>
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30 px-4 py-3 mb-4">
                 <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Integração disponível via Z-API ou Evolution API (self-hosted)</p>
                 <p className="text-xs text-emerald-600/80 dark:text-emerald-500/80 mt-0.5">Configure as credenciais abaixo para ativar o envio automático</p>
@@ -267,7 +265,7 @@ export default function ConfiguracoesPage() {
 
           {/* Google Agenda */}
           <TabsContent value="google" className="space-y-5">
-            <Section title="Google Agenda" description="Sincronizar agendamentos com o Google Calendar" icon={CalendarCheck as any}>
+            <Section title="Google Agenda" description="Sincronizar agendamentos com o Google Calendar" icon={CalendarCheck}>
               <div className="flex items-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--muted)]/30 p-4 mb-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white shadow-sm border border-[var(--border)]">
                   <GoogleChromeLogo weight="duotone" size={24} className="text-blue-500"/>

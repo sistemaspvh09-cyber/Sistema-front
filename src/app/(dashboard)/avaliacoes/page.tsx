@@ -118,7 +118,7 @@ export default function AvaliacoesPage() {
                       </div>
                       <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{a.barbeiro} · {formatDate(a.data)}</p>
                       {a.comentario && (
-                        <p className="mt-2 text-xs italic text-[var(--muted-foreground)] border-l-2 border-[var(--primary)]/30 pl-2">"{a.comentario}"</p>
+                        <p className="mt-2 text-xs italic text-[var(--muted-foreground)] border-l-2 border-[var(--primary)]/30 pl-2">&quot;{a.comentario}&quot;</p>
                       )}
                     </div>
                   </motion.div>
