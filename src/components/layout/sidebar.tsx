@@ -9,7 +9,7 @@ import {
   Scissors, Package, ChartBar, Gear, SignOut, CaretRight,
   Lightning, UserCircle, CalendarCheck, List, X,
   CaretDoubleLeft, CaretDoubleRight, Star, Buildings,
-  CashRegister, Globe, QrCode, Money
+  CashRegister, Globe, QrCode, Money, StarHalf, Cake
 } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { useAuthStore, type UserRole } from "@/store/auth-store"
@@ -25,25 +25,27 @@ interface NavItem {
 }
 
 const nav: NavItem[] = [
-  { label: "Dashboard",     href: "/dashboard",    icon: SquaresFour                          },
-  { label: "PDV",           href: "/pdv",           icon: ShoppingCart, badge: "novo"         },
-  { label: "Caixa",         href: "/caixa",         icon: CashRegister, roles: ["caixa","admin"] },
-  { label: "Agendamentos",  href: "/agendamentos",  icon: CalendarBlank                        },
-  { label: "Clientes",      href: "/clientes",      icon: Users                                },
-  { label: "Barbeiros",     href: "/barbeiros",     icon: Scissors,     roles: ["admin"]       },
-  { label: "Serviços",      href: "/servicos",      icon: Lightning                            },
-  { label: "Produtos",      href: "/produtos",      icon: Package                              },
-  { label: "Fidelidade",    href: "/fidelidade",    icon: Star                                 },
-  { label: "Financeiro",    href: "/financeiro",    icon: CurrencyDollar, roles: ["admin","caixa"] },
-  { label: "Relatórios",    href: "/relatorios",    icon: ChartBar,     roles: ["admin"]       },
-  { label: "Comissões",     href: "/comissoes",     icon: Money,        roles: ["admin"]       },
-  { label: "Unidades",      href: "/unidades",      icon: Buildings,    roles: ["admin"]       },
-  { label: "QR Code",       href: "/qrcode",        icon: QrCode,       roles: ["admin"]       },
-  { label: "Configurações", href: "/configuracoes", icon: Gear,         roles: ["admin"]       },
+  { label: "Dashboard",      href: "/dashboard",      icon: SquaresFour                            },
+  { label: "PDV",            href: "/pdv",             icon: ShoppingCart, badge: "novo"           },
+  { label: "Caixa",          href: "/caixa",           icon: CashRegister, roles: ["caixa","admin"] },
+  { label: "Agendamentos",   href: "/agendamentos",    icon: CalendarBlank                          },
+  { label: "Clientes",       href: "/clientes",        icon: Users                                  },
+  { label: "Barbeiros",      href: "/barbeiros",       icon: Scissors,     roles: ["admin"]         },
+  { label: "Serviços",       href: "/servicos",        icon: Lightning                              },
+  { label: "Produtos",       href: "/produtos",        icon: Package                                },
+  { label: "Fidelidade",     href: "/fidelidade",      icon: Star                                   },
+  { label: "Avaliações",     href: "/avaliacoes",      icon: StarHalf                               },
+  { label: "Aniversariantes",href: "/aniversariantes", icon: Cake,         badge: "3"              },
+  { label: "Financeiro",     href: "/financeiro",      icon: CurrencyDollar, roles: ["admin","caixa"] },
+  { label: "Relatórios",     href: "/relatorios",      icon: ChartBar,     roles: ["admin"]         },
+  { label: "Comissões",      href: "/comissoes",       icon: Money,        roles: ["admin"]         },
+  { label: "Unidades",       href: "/unidades",        icon: Buildings,    roles: ["admin"]         },
+  { label: "QR Code",        href: "/qrcode",          icon: QrCode,       roles: ["admin"]         },
+  { label: "Configurações",  href: "/configuracoes",   icon: Gear,         roles: ["admin"]         },
 ]
 const userNav: NavItem[] = [
-  { label: "Minha Agenda",  href: "/minha-agenda", icon: CalendarCheck, roles: ["barbeiro"] },
-  { label: "Link Agendamento", href: "/agendar",    icon: Globe,         roles: ["admin"]   },
+  { label: "Minha Agenda",   href: "/minha-agenda",   icon: CalendarCheck, roles: ["barbeiro"] },
+  { label: "Link Agendamento",href: "/agendar",        icon: Globe,         roles: ["admin"]   },
   { label: "Meu Perfil",    href: "/perfil",         icon: UserCircle                        },
 ]
 
